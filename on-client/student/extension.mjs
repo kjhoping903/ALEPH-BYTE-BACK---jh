@@ -391,6 +391,71 @@ export function createStudentView() {
       }
       return root;
     },
-    renderAction() { return '학생 구현 대기: 현재 사건·조치·실제 대상·사람 확인·ACK와 원천 효과·unknown을 구분하세요.'; },
+    renderAction({ status, event, actionId, target, receipt, observation, message, confirmationExpiresAt, error }) {
+      const root = document.createElement('div');
+      const add = (value) => {
+        const line = document.createElement('p');
+        line.textContent = value;
+        root.append(line);
+      };
+      const resultUnknown = () => {
+        add('결과 불명(unknown): 성공이나 효과 없음으로 판단하지 마세요.');
+        add('연동 시스템 결과만 재조회하세요.');
+      };
+      const intentMatches = Boolean(event?.id) && Boolean(actionId) && Boolean(receipt?.requestId)
+        && (!receipt?.eventId || receipt.eventId === event.id)
+        && (!receipt?.actionId || receipt.actionId === actionId);
+      const effectConfirmed = status === 'succeeded' && intentMatches && observation?.effectApplied === true
+        && Boolean(observation.observedAt) && Boolean(receipt?.receiptId);
+
+      if (status === 'idle') add('아직 미실행(idle)');
+      else if (status === 'loading') {
+        add(`조치 준비 또는 결과 조회 중(loading): ${message || '결과가 아직 확인되지 않았습니다.'}`);
+      } else if (status === 'prepared') {
+        add('준비됨·미실행(prepared)');
+        add('대상과 조치를 사람이 확인하기 전이며 아직 서버에 집행을 요청하지 않았습니다.');
+        if (confirmationExpiresAt) add(`확인 기한: ${confirmationExpiresAt}`);
+      } else if (status === 'executing') {
+        add('서버에 전달 중(executing)');
+        add('전송 중이며 결과는 아직 확인되지 않았습니다.');
+      } else if (status === 'pending') {
+        add('서버 접수·처리 중(pending)');
+        add('접수 응답(ACK)은 실제 효과나 실행 성공을 뜻하지 않습니다.');
+      } else if (status === 'succeeded') {
+        if (effectConfirmed) {
+          add('효과 확인(succeeded)');
+          add(`관측 시각: ${observation.observedAt}`);
+          add('effectApplied: true');
+          add(`receiptId: ${receipt.receiptId}`);
+          if (event?.id) root.setAttribute('data-student-action-event', event.id);
+          if (receipt?.requestId) root.setAttribute('data-student-action-request', receipt.requestId);
+        } else resultUnknown();
+      } else if (status === 'denied') {
+        add(`연동 시스템 거절(denied): ${message || '거절 사유를 확인할 수 없습니다.'}`);
+      } else if (status === 'failed') {
+        add(`연동 시스템 실패(failed): ${message || '실패 사유를 확인할 수 없습니다.'}`);
+      } else if (status === 'unknown') resultUnknown();
+      else if (status === 'expired') {
+        add('확인 기한 지남(expired)');
+        add('이전 준비 상태로 집행하지 말고 조치를 다시 준비하세요.');
+      } else if (status === 'error') {
+        add(`요청 처리 안 됨(error): ${error?.code || 'ACTION_ERROR'} · ${error?.message || '확인 불가'}`);
+      } else add('조치 상태 확인 불가(unknown)');
+
+      if (event?.id) {
+        add(`사건 ID: ${event.id}`);
+        const evidenceIds = Array.isArray(event.evidence) ? event.evidence.map(item => item.id) : [];
+        if (evidenceIds.length > 0) add(`근거 ID: ${evidenceIds.join(', ')}`);
+      }
+      if (actionId) add(`조치 ID: ${actionId}`);
+      if (target?.id) add(`실제 대상 ID: ${target.id}`);
+      if (target?.generation != null) add(`대상 generation: ${target.generation}`);
+      if (receipt?.requestId) add(`requestId: ${receipt.requestId}`);
+      if (receipt?.receiptId && !effectConfirmed) add(`receiptId: ${receipt.receiptId}`);
+      if (receipt?.version != null) add(`version: ${receipt.version}`);
+      if (typeof receipt?.replayed === 'boolean') add(`replayed: ${receipt.replayed}`);
+      if (status !== 'idle') add('조작은 제공 화면의 버튼으로 진행하세요. 학생 화면은 요청을 전송하지 않습니다.');
+      return root;
+    },
   };
 }
