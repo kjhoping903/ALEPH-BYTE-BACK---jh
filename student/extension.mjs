@@ -79,7 +79,88 @@ export function createStudentView() {
     },
     renderEvents() { return '학생 구현 대기: 본인 접속·XDR 기록을 연결하세요.'; },
     renderStatus() { return '학생 구현 대기: 기기·세션·알림과 연결 점검 상태를 구분하세요.'; },
-    renderVulnerabilities() { return '학생 구현 대기: 정확한 설치 버전·OSV 출처·조회 시각·부분 결과·조회 실패를 구분하세요.'; },
+    renderVulnerabilities({ status, mode, data, error }) {
+      const root = document.createElement('div');
+      const add = (parent, tag, value) => {
+        const element = document.createElement(tag);
+        element.textContent = String(value);
+        parent.append(element);
+        return element;
+      };
+      const modes = { demo: '예제 자료', disconnected: '연결 없음', unknown: '연결 상태 확인 불가' };
+      if (Object.hasOwn(modes, mode)) add(root, 'p', modes[mode]);
+
+      if (status === 'idle') {
+        add(root, 'p', '설치 패키지 조회 전입니다.');
+        return root;
+      }
+      if (status === 'loading') {
+        add(root, 'p', '설치 패키지 조회 중입니다. 이전 표는 현재 결과가 아닙니다.');
+        return root;
+      }
+      if (status === 'error') {
+        add(root, 'p', `설치 패키지 조회 실패: ${error?.message || '결과를 확인할 수 없습니다.'}`);
+        add(root, 'p', '조회 실패는 취약점 없음이 아닙니다. 이전 표는 현재 결과가 아닙니다.');
+        return root;
+      }
+      if (status !== 'ok' || !data) {
+        add(root, 'p', '설치 패키지 조회 상태를 확인할 수 없습니다.');
+        return root;
+      }
+
+      const scanStatuses = {
+        complete: '모두 조회',
+        partial: '일부 조회 실패',
+        not_checked: '아직 조회 안 함 · 승인된 공개 조회 대상 없음',
+        not_configured: '조회 대상 프로젝트 설정 필요',
+        unverifiable: 'lock 파일 확인 불가',
+      };
+      add(root, 'p', `전체 조회 상태: ${scanStatuses[data.status] || '확인 불가'} (${data.status || 'unknown'})`);
+      if (data.status === 'not_checked' || data.status === 'not_configured' || data.status === 'unverifiable') {
+        add(root, 'p', '미조회 또는 확인 불가 상태이며 취약점 없음으로 판단할 수 없습니다. 대상 경로와 허용 패키지는 운영자가 준비합니다.');
+      }
+      if (data.status === 'partial') add(root, 'p', '일부 조회 실패가 있어 전체 결과를 확인할 수 없습니다. 확인된 취약점 항목은 아래에 유지합니다.');
+      if (data.lockfileVersion != null) add(root, 'p', `package-lock.json 버전: ${data.lockfileVersion}`);
+      if (data.lockfileHash != null) add(root, 'p', `package-lock.json 해시: ${data.lockfileHash}`);
+      if (data.checkedAt != null) add(root, 'p', `전체 조회 시각: ${data.checkedAt}`);
+
+      const packages = Array.isArray(data.packages) ? data.packages : [];
+      if (packages.length === 0) {
+        if (data.status === 'complete') add(root, 'p', '표시할 패키지 조회 결과가 없습니다.');
+        return root;
+      }
+      add(root, 'p', '표시 버전은 package-lock.json에 기록된 정확한 값입니다. 설치된 node_modules 메타데이터와 대조하며, 확인할 수 없는 패키지는 별도로 표시합니다.');
+      const table = document.createElement('table');
+      const head = document.createElement('tr');
+      for (const label of ['패키지', '정확한 설치 버전', '조회 상태', '출처', '조회 시각', '취약점 ID · 수정 시각']) add(head, 'th', label);
+      const thead = document.createElement('thead');
+      thead.append(head);
+      table.append(thead);
+      const body = document.createElement('tbody');
+      for (const pkg of packages) {
+        const row = document.createElement('tr');
+        row.setAttribute('data-student-package-name', pkg.name);
+        row.setAttribute('data-student-package-version', pkg.version);
+        add(row, 'td', pkg.name);
+        add(row, 'td', pkg.version);
+        const findings = Array.isArray(pkg.vulnerabilities) ? pkg.vulnerabilities : [];
+        const packageStatuses = {
+          known_vulnerabilities: '알려진 항목 있음',
+          none_found: '조회 범위에서 알려진 항목 없음 · 안전 판정 아님',
+          unverifiable: findings.length ? '일부 확인 · 전체 조회 확인 불가' : '조회 확인 불가',
+        };
+        add(row, 'td', `${packageStatuses[pkg.status] || '확인 불가'} (${pkg.status || 'unknown'})`);
+        add(row, 'td', pkg.source ?? '정보 없음');
+        add(row, 'td', pkg.checkedAt ?? '정보 없음');
+        const findingCell = document.createElement('td');
+        for (const finding of findings) add(findingCell, 'p', `${finding.id} · 수정 시각: ${finding.modified}`);
+        row.append(findingCell);
+        body.append(row);
+      }
+      table.append(body);
+      root.append(table);
+      return root;
+    },
     renderAiConnection({ status, mode, data, error, checkedAt, explanationAccepted }) {
       const root = document.createElement('div');
       const add = (value) => {
