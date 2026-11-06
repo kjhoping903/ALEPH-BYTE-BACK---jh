@@ -34,7 +34,7 @@ const STATE_NAMES = { access: '접속', session: '세션', device: '기기' };
 
 const KIND_LABELS ={ access: '접속 기록', xdr: 'XDR 사건' };
 
-const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities'];
+const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities', '/api/pc-status'];
 
 const RESOURCE_LABELS = {
   me: '로그인 정보',
@@ -410,10 +410,76 @@ function renderErrors() {
   box.hidden = false;
 }
 
+function renderDashboard() {
+  const source = currentMode();
+  const sourceLabel = { connected: '실제 조회', demo: '설명용 예시', disconnected: '실제 원천 미연결', unknown: '확인 불가' }[source] || '확인 불가';
+  const sourceElement = $('dashboard-data-source');
+  sourceElement.dataset.source = source;
+  sourceElement.textContent = sourceLabel;
+  const setSummary = (name, value, note) => {
+    $(name).textContent = value;
+    $(`${name}-note`).textContent = note;
+  };
+  const resourceState = (resource, ok, errorText) => {
+    if (resource.status === 'loading') return ['불러오는 중', '조회 진행 중'];
+    if (resource.status === 'ok') return [ok, source === 'demo' ? '설명용 예시' : '실제 조회'];
+    return [errorText, resource.error?.code || '확인 불가'];
+  };
+  const connection = resourceState(state.me, '연결됨', '연결 없음');
+  setSummary('summary-connection', connection[0], connection[1]);
+  if (state.devices.status === 'ok') {
+    const noncompliant = state.devices.data.filter(device => device.status !== 'compliant').length;
+    setSummary('summary-device', noncompliant ? `${noncompliant}건 주의` : '기준 충족', source === 'demo' ? '설명용 예시' : `${state.devices.data.length}건 실제 조회`);
+  } else {
+    const device = resourceState(state.devices, '기기 확인', '확인 불가');
+    setSummary('summary-device', device[0], device[1]);
+  }
+  if (state.sessions.status === 'ok') {
+    const active = state.sessions.data.filter(session => session.status === 'active').length;
+    setSummary('summary-session', `${active}건 활성`, source === 'demo' ? '설명용 예시' : `${state.sessions.data.length}건 실제 조회`);
+  } else {
+    const session = resourceState(state.sessions, '세션 확인', '확인 불가');
+    setSummary('summary-session', session[0], session[1]);
+  }
+  if (state.events.status === 'ok') {
+    setSummary('summary-events', `${state.events.data.length}건`, source === 'demo' ? '설명용 예시' : '최근 기록 실제 조회');
+  } else {
+    const events = resourceState(state.events, '기록 확인', '확인 불가');
+    setSummary('summary-events', events[0], events[1]);
+  }
+  const trend = $('dashboard-trend');
+  trend.replaceChildren();
+  if (state.events.status !== 'ok') {
+    trend.append(el('p', { className: 'state state-empty', text: state.events.status === 'loading' ? '기록 추이를 불러오는 중입니다.' : '실제 기록이 없어 추이를 표시할 수 없습니다.' }));
+    return;
+  }
+  const counts = new Map();
+  for (const event of state.events.data) {
+    const day = event.at.slice(0, 10);
+    counts.set(day, (counts.get(day) || 0) + 1);
+  }
+  if (counts.size === 0) {
+    trend.append(el('p', { className: 'state state-empty', text: '표시할 기록이 없습니다.' }));
+    return;
+  }
+  for (const [day, count] of [...counts].sort(([a], [b]) => b.localeCompare(a)).slice(0, 7)) {
+    const row = el('div', { className: 'trend-row' }, [
+      el('span', { text: day }),
+      el('span', { className: 'trend-bar', 'aria-hidden': 'true' }),
+      el('strong', { text: `${count}건` }),
+    ]);
+    row.querySelector('.trend-bar').style.setProperty('--trend-size', `${Math.max(8, Math.min(100, count * 18))}%`);
+    trend.append(row);
+  }
+}
+
 // ---------- 메뉴 ----------
 
 function selectView(view, { focus = false } = {}) {
+  const allowedViews = new Set(['protection', 'apps', 'records']);
+  if (!allowedViews.has(view)) return;
   state.view = view;
+  if (window.location.hash !== `#${view}`) window.history.replaceState(null, '', `#${view}`);
   for (const tab of document.querySelectorAll('#nav [role="tab"]')) {
     const selected = tab.dataset.view === view;
     tab.setAttribute('aria-selected', String(selected));
@@ -425,6 +491,8 @@ function selectView(view, { focus = false } = {}) {
 
 function setupNav() {
   const tabs = [...document.querySelectorAll('#nav [role="tab"]')];
+  const initialView = window.location.hash.slice(1);
+  selectView(initialView || 'protection');
   for (const tab of tabs) {
     tab.addEventListener('click', () => selectView(tab.dataset.view));
     tab.addEventListener('keydown', (event) => {
@@ -439,6 +507,16 @@ function setupNav() {
       selectView(next.dataset.view, { focus: true });
     });
   }
+  window.addEventListener('hashchange', () => selectView(window.location.hash.slice(1)));
+  document.addEventListener('keydown', (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
+    const index = Number(event.key) - 1;
+    if (!Number.isInteger(index) || !tabs[index]) return;
+    event.preventDefault();
+    selectView(tabs[index].dataset.view, { focus: true });
+  });
 }
 
 // ---------- 보호 현황 ----------
@@ -1265,11 +1343,11 @@ async function loadStudentModule() {
 // ---------- 로드 ----------
 
 const RENDERERS = {
-  me: () => { renderIdentity(); renderStudent('identity'); },
-  devices: () => { renderDevices(); renderStudent('identity'); },
-  sessions: () => { renderSessions(); renderStudent('identity'); },
+  me: () => { renderIdentity(); renderStudent('identity'); renderDashboard(); },
+  devices: () => { renderDevices(); renderStudent('identity'); renderDashboard(); },
+  sessions: () => { renderSessions(); renderStudent('identity'); renderDashboard(); },
   apps: () => renderApps(),
-  events: () => { renderEvents(); renderStudent('events'); },
+  events: () => { renderEvents(); renderStudent('events'); renderDashboard(); },
 };
 
 const PATHS = { me: '/api/me', apps: '/api/apps', events: '/api/events', devices: '/api/devices', sessions: '/api/sessions' };
@@ -1333,6 +1411,7 @@ async function loadAll() {
 
 function init() {
   setupNav();
+  renderDashboard();
   $('refresh').addEventListener('click', () => loadAll());
   $('diag-load').addEventListener('click', () => loadDiagnostics());
   $('diag-copy').addEventListener('click', () => copyDiagnostics());

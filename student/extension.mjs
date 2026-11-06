@@ -1,6 +1,9 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-export function createStudentView() {
+
+const pcStatusHistory = [];
+
+export function createStudentView({ api, onChange } = {}) {
   return {
     renderIdentity({ me, devices, sessions }) {
       const root = document.createElement('div');
@@ -77,8 +80,518 @@ export function createStudentView() {
       } else add('', '판정 확인 불가(unknown)');
       return root;
     },
-    renderEvents() { return '학생 구현 대기: 본인 접속·XDR 기록을 연결하세요.'; },
-    renderStatus() { return '학생 구현 대기: 기기·세션·알림과 연결 점검 상태를 구분하세요.'; },
+    renderEvents({ status, mode, data, error }) {
+      const root = document.createElement('div');
+      const add = (parent, tag, value) => {
+        const element = document.createElement(tag);
+        element.textContent = value;
+        parent.append(element);
+        return element;
+      };
+      const modes = { demo: '예제 자료', disconnected: '연결 없음', unknown: '확인 불가' };
+      if (Object.hasOwn(modes, mode)) add(root, 'p', modes[mode]);
+      if (status === 'loading') {
+        add(root, 'p', '불러오는 중');
+        return root;
+      }
+      if (status === 'error') {
+        if (error?.code === 'CONTRACT_MISMATCH') add(root, 'p', '기록 확인 불가');
+        add(root, 'p', `기록을 불러오지 못했습니다: ${error?.message || '확인 불가'}`);
+        return root;
+      }
+      if (status !== 'ok' || !Array.isArray(data)) {
+        add(root, 'p', '기록 확인 불가');
+        return root;
+      }
+
+      const events = [...data].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+      if (events.length === 0) {
+        add(root, 'p', '표시할 기록이 없습니다');
+        return root;
+      }
+      const filters = document.createElement('div');
+      const choices = {};
+      const searchLabel = document.createElement('label');
+      add(searchLabel, 'span', '기록 검색');
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.placeholder = '사건 ID, 앱, 요약 검색';
+      search.setAttribute('aria-label', '사건 ID, 앱, 요약 검색');
+      searchLabel.append(search);
+      filters.append(searchLabel);
+      const makeFilter = (name, values, labelFor) => {
+        const label = document.createElement('label');
+        add(label, 'span', name);
+        const select = document.createElement('select');
+        for (const value of ['all', ...new Set(values)]) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = value === 'all' ? '전체' : labelFor(value);
+          select.append(option);
+        }
+        label.append(select);
+        filters.append(label);
+        choices[name] = select;
+      };
+      makeFilter('기록 종류', events.map(event => event.kind), value => ({ access: '접속', xdr: 'XDR 경보' })[value] || value);
+      makeFilter('업무 앱', events.map(event => event.appId || ''), value => value || '앱 확인 불가');
+      makeFilter('접속 상태', events.map(event => event.state.access), value => value);
+      root.append(filters);
+      const count = add(root, 'p', '');
+      const list = document.createElement('ul');
+      root.append(list);
+
+      const states = {
+        access: { allowed: '허용', denied: '거부', unknown: '확인 불가' },
+        session: { active: '활성', expired: '만료', revoked: '철회됨', unknown: '확인 불가' },
+        device: { compliant: '보안 기준 충족', noncompliant: '보안 기준 미충족', unknown: '확인 불가' },
+      };
+      const stateText = (type, value) => `${states[type][value] || '확인 불가'}(${value})`;
+      const renderList = () => {
+        list.replaceChildren();
+        const visible = events.filter(event =>
+          (choices['기록 종류'].value === 'all' || event.kind === choices['기록 종류'].value)
+          && (choices['업무 앱'].value === 'all' || (event.appId || '') === choices['업무 앱'].value)
+          && (choices['접속 상태'].value === 'all' || event.state.access === choices['접속 상태'].value)
+          && [event.id, event.appId || '', event.summary].some(value => value.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())));
+        count.textContent = `표시된 기록 ${visible.length}건`;
+        if (visible.length === 0) {
+          add(list, 'li', '표시할 기록이 없습니다');
+          return;
+        }
+        for (const event of visible) {
+          const row = document.createElement('li');
+          row.setAttribute('data-student-event-id', event.id);
+          add(row, 'p', `사건 ID: ${event.id} · 시각: ${event.at} · 종류: ${{ access: '접속', xdr: 'XDR 경보' }[event.kind] || event.kind} · 앱: ${event.appId || '앱 확인 불가'} · 요약: ${event.summary}`);
+          const button = add(row, 'button', `${event.id} 상세`);
+          button.type = 'button';
+          button.addEventListener('click', () => {
+            const existing = row.querySelector('[data-student-event-detail]');
+            if (existing) existing.remove();
+            else {
+              const detail = document.createElement('div');
+              detail.setAttribute('data-student-event-detail', event.id);
+              add(detail, 'p', `사건 ID: ${event.id}`);
+              add(detail, 'p', `앱 ID: ${event.appId || '앱 확인 불가'}`);
+              add(detail, 'h4', '근거');
+              for (const item of event.evidence) add(detail, 'p', `${item.id}: ${item.text}`);
+              add(detail, 'h4', '규칙');
+              for (const item of event.rules) add(detail, 'p', `${item.id}: ${item.text}`);
+              add(detail, 'p', `접속 상태: ${stateText('access', event.state.access)}`);
+              add(detail, 'p', `세션 상태: ${stateText('session', event.state.session)}`);
+              add(detail, 'p', `기기 상태: ${stateText('device', event.state.device)}`);
+              if (Array.isArray(event.supportedActions) && event.supportedActions.length > 0) {
+                add(detail, 'p', '조치 실행 연결은 준비 중입니다.');
+                for (const action of event.supportedActions) {
+                  const unsupported = add(detail, 'button', `${action} 미지원`);
+                  unsupported.type = 'button';
+                  unsupported.disabled = true;
+                }
+              }
+              row.append(detail);
+            }
+          });
+          list.append(row);
+        }
+      };
+      for (const select of Object.values(choices)) select.addEventListener('change', renderList);
+      search.addEventListener('input', renderList);
+      renderList();
+      return root;
+    },
+    renderStatus({ devices, sessions, notifications, diagnostics, mode }) {
+      const root = document.createElement('div');
+      root.className = 'student-dashboard-container';
+
+      const add = (parent, tag, value, className) => {
+        const element = document.createElement(tag);
+        if (value !== undefined && value !== null) element.textContent = value;
+        if (className) element.className = className;
+        parent.append(element);
+        return element;
+      };
+
+      // 1. 관제 대시보드형 상단: 내 PC 상태 카드 네 개
+      const dashboardSection = document.createElement('section');
+      dashboardSection.className = 'pc-status-dashboard';
+      dashboardSection.style.cssText = 'border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #f8fafc;';
+
+      const dashHeader = document.createElement('div');
+      dashHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;';
+      add(dashHeader, 'h3', '내 PC 자원 상태 관제 대시보드 (일반 권한)', '');
+      const refreshBtn = add(dashHeader, 'button', 'PC 자원 측정 갱신', 'btn');
+      refreshBtn.type = 'button';
+      refreshBtn.style.cssText = 'padding: 4px 10px; font-size: 13px; cursor: pointer;';
+      dashboardSection.append(dashHeader);
+
+      const cardsContainer = document.createElement('div');
+      cardsContainer.className = 'pc-cards-grid';
+      cardsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px;';
+      dashboardSection.append(cardsContainer);
+
+      // 2. 관제 대시보드 하단: 추이 비교와 진단 기록
+      const lowerSection = document.createElement('div');
+      lowerSection.className = 'pc-dashboard-lower';
+      lowerSection.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;';
+      dashboardSection.append(lowerSection);
+
+      const trendPanel = document.createElement('div');
+      trendPanel.className = 'pc-trend-panel';
+      trendPanel.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;';
+      add(trendPanel, 'h4', '자원 사용 추이 비교 (시각별 측정 이력)', '');
+      const trendContent = document.createElement('div');
+      trendPanel.append(trendContent);
+      lowerSection.append(trendPanel);
+
+      const diagPanel = document.createElement('div');
+      diagPanel.className = 'pc-diag-panel';
+      diagPanel.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;';
+      add(diagPanel, 'h4', '시스템 상태 진단 설명 및 확인 순서', '');
+      const diagContent = document.createElement('div');
+      diagPanel.append(diagContent);
+      lowerSection.append(diagPanel);
+
+      root.append(dashboardSection);
+
+      // 카드 생성 헬퍼
+      const createStatusCard = (title, valueText, subText, measuredAt, badgeText, badgeType) => {
+        const card = document.createElement('article');
+        card.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between;';
+        
+        const topRow = document.createElement('div');
+        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;';
+        add(topRow, 'strong', title, '');
+        
+        const badge = add(topRow, 'span', badgeText, 'data-source-badge');
+        badge.style.cssText = badgeType === 'actual'
+          ? 'background: #dcfce7; color: #166534; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px;'
+          : (badgeType === 'demo'
+            ? 'background: #fef3c7; color: #92400e; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px;'
+            : 'background: #fee2e2; color: #991b1b; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px;');
+        
+        card.append(topRow);
+        
+        const mainVal = add(card, 'div', valueText, '');
+        mainVal.style.cssText = 'font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 4px;';
+        
+        if (subText) {
+          const sub = add(card, 'div', subText, '');
+          sub.style.cssText = 'font-size: 12px; color: #64748b; margin-bottom: 6px;';
+        }
+        
+        const timeVal = add(card, 'div', `잰 시각: ${measuredAt || '확인 불가'}`, '');
+        timeVal.style.cssText = 'font-size: 11px; color: #94a3b8; border-top: 1px dashed #f1f5f9; padding-top: 4px;';
+        
+        return card;
+      };
+
+      // 렌더링 갱신 함수
+      const updateDashboardView = (data, errorMsg) => {
+        cardsContainer.replaceChildren();
+        trendContent.replaceChildren();
+        diagContent.replaceChildren();
+
+        if (errorMsg || !data) {
+          const errCard = createStatusCard('내 PC 상태', '확인 불가', errorMsg || '서버 응답 확인 불가', '-', '확인 불가', 'unavailable');
+          cardsContainer.append(errCard);
+          add(diagContent, 'p', `조회 실패 사유: ${errorMsg || '서버 연결 실패'}`, '');
+          add(diagContent, 'p', '관리자 권한 없이 일반 권한으로 조회를 시도했으나 결과를 받아오지 못했습니다.', '');
+          return;
+        }
+
+        const isDemo = data.mode === 'demo';
+        const badgeLabel = isDemo ? '설명용 예시' : '실제 조회';
+        const badgeType = isDemo ? 'demo' : 'actual';
+        const checkedAtFormatted = data.checkedAt ? new Date(data.checkedAt).toLocaleTimeString() : '확인 불가';
+
+        // 1. CPU 카드
+        if (data.cpu?.status === 'ok') {
+          cardsContainer.append(createStatusCard(
+            'CPU 사용률',
+            `${data.cpu.percent} ${data.cpu.unit}`,
+            `코어 수: ${data.cpu.cores}코어 (${data.cpu.model ? data.cpu.model.slice(0, 25) : '확인 불가'})`,
+            new Date(data.cpu.measuredAt || data.checkedAt).toLocaleTimeString(),
+            badgeLabel,
+            badgeType
+          ));
+        } else {
+          cardsContainer.append(createStatusCard(
+            'CPU 사용률',
+            '확인 불가',
+            `이유: ${data.cpu?.reason || '측정 시간 초과 또는 권한 제한'}`,
+            data.cpu?.measuredAt ? new Date(data.cpu.measuredAt).toLocaleTimeString() : '-',
+            '확인 불가',
+            'unavailable'
+          ));
+        }
+
+        // 2. 메모리 카드
+        if (data.memory?.status === 'ok') {
+          cardsContainer.append(createStatusCard(
+            '메모리 사용량',
+            `${data.memory.usedGb} / ${data.memory.totalGb} ${data.memory.unit}`,
+            `사용률: ${data.memory.usedPercent}% (여유: ${data.memory.freeGb} ${data.memory.unit})`,
+            new Date(data.memory.measuredAt || data.checkedAt).toLocaleTimeString(),
+            badgeLabel,
+            badgeType
+          ));
+        } else {
+          cardsContainer.append(createStatusCard(
+            '메모리 사용량',
+            '확인 불가',
+            `이유: ${data.memory?.reason || '메모리 읽기 실패'}`,
+            data.memory?.measuredAt ? new Date(data.memory.measuredAt).toLocaleTimeString() : '-',
+            '확인 불가',
+            'unavailable'
+          ));
+        }
+
+        // 3. 디스크 남은 공간 카드
+        if (data.disk?.status === 'ok') {
+          cardsContainer.append(createStatusCard(
+            '디스크 남은 공간',
+            `${data.disk.freeGb} ${data.disk.unit} 남음`,
+            `전체 ${data.disk.totalGb} ${data.disk.unit} 중 여유 ${data.disk.freePercent}% (${data.disk.path || 'C:\\'})`,
+            new Date(data.disk.measuredAt || data.checkedAt).toLocaleTimeString(),
+            badgeLabel,
+            badgeType
+          ));
+        } else {
+          cardsContainer.append(createStatusCard(
+            '디스크 남은 공간',
+            '확인 불가',
+            `이유: ${data.disk?.reason || '디스크 권한 제한 또는 경로 오류'}`,
+            data.disk?.measuredAt ? new Date(data.disk.measuredAt).toLocaleTimeString() : '-',
+            '확인 불가',
+            'unavailable'
+          ));
+        }
+
+        // 4. 건전도 / 설명 카드
+        const diagStateLabel = data.diagnosis?.status === 'normal' ? '정상 (안정)' : (data.diagnosis?.status === 'warning' ? '주의 필요' : '부분 확인');
+        cardsContainer.append(createStatusCard(
+          '자원 건전도',
+          diagStateLabel,
+          data.diagnosis?.summary || '자원 상태 점검 완료',
+          checkedAtFormatted,
+          badgeLabel,
+          badgeType
+        ));
+
+        // 하단 추이 비교 패널 내용 구성
+        if (pcStatusHistory.length <= 1) {
+          add(trendContent, 'p', '측정 이력이 1건입니다. [PC 자원 측정 갱신]을 누르면 이전 측정값과 추이를 비교합니다.', '');
+        } else {
+          const current = pcStatusHistory[pcStatusHistory.length - 1];
+          const previous = pcStatusHistory[pcStatusHistory.length - 2];
+          
+          const trendSummary = document.createElement('div');
+          trendSummary.style.cssText = 'padding: 8px; background: #f1f5f9; border-radius: 4px; margin-bottom: 10px; font-size: 13px;';
+          
+          const cpuDiff = (current.cpu?.percent !== undefined && previous.cpu?.percent !== undefined)
+            ? (current.cpu.percent - previous.cpu.percent).toFixed(1) : null;
+          const memDiff = (current.memory?.usedPercent !== undefined && previous.memory?.usedPercent !== undefined)
+            ? (current.memory.usedPercent - previous.memory.usedPercent).toFixed(1) : null;
+          const diskDiff = (current.disk?.freeGb !== undefined && previous.disk?.freeGb !== undefined)
+            ? (current.disk.freeGb - previous.disk.freeGb).toFixed(2) : null;
+
+          const diffParts = [];
+          if (cpuDiff !== null) diffParts.push(`CPU: ${cpuDiff > 0 ? '+' : ''}${cpuDiff}%`);
+          if (memDiff !== null) diffParts.push(`메모리: ${memDiff > 0 ? '+' : ''}${memDiff}%`);
+          if (diskDiff !== null) diffParts.push(`디스크 여유: ${diskDiff > 0 ? '+' : ''}${diskDiff} GB`);
+
+          trendSummary.textContent = `이전 측정 대비 변동 추이: ${diffParts.join(' · ') || '변동 없음'}`;
+          trendContent.append(trendSummary);
+        }
+
+        // 시각별 이력 테이블
+        const table = document.createElement('table');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px;';
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headerRow.style.cssText = 'background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;';
+        for (const h of ['잰 시각', '구분', 'CPU', '메모리', '디스크 여유']) {
+          const th = document.createElement('th');
+          th.style.padding = '6px';
+          th.textContent = h;
+          headerRow.append(th);
+        }
+        thead.append(headerRow);
+        table.append(thead);
+
+        const tbody = document.createElement('tbody');
+        for (let i = pcStatusHistory.length - 1; i >= Math.max(0, pcStatusHistory.length - 5); i--) {
+          const item = pcStatusHistory[i];
+          const tr = document.createElement('tr');
+          tr.style.cssText = 'border-bottom: 1px solid #f1f5f9;';
+          
+          const timeTd = add(tr, 'td', new Date(item.checkedAt).toLocaleTimeString(), '');
+          timeTd.style.padding = '6px';
+          
+          const typeTd = add(tr, 'td', item.mode === 'demo' ? '설명용 예시' : '실제 조회', '');
+          typeTd.style.cssText = item.mode === 'demo' ? 'padding: 6px; color: #b45309; font-weight: bold;' : 'padding: 6px; color: #15803d; font-weight: bold;';
+          
+          const cpuTd = add(tr, 'td', item.cpu?.status === 'ok' ? `${item.cpu.percent} %` : '확인 불가', '');
+          cpuTd.style.padding = '6px';
+          
+          const memTd = add(tr, 'td', item.memory?.status === 'ok' ? `${item.memory.usedPercent} %` : '확인 불가', '');
+          memTd.style.padding = '6px';
+          
+          const diskTd = add(tr, 'td', item.disk?.status === 'ok' ? `${item.disk.freeGb} GB` : '확인 불가', '');
+          diskTd.style.padding = '6px';
+          
+          tbody.append(tr);
+        }
+        table.append(tbody);
+        trendContent.append(table);
+
+        // 하단 진단 설명 내용 구성
+        const descList = document.createElement('ul');
+        descList.style.cssText = 'margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: #334155;';
+        
+        const li1 = document.createElement('li');
+        li1.textContent = `[진단 요약] ${data.diagnosis?.summary || '자원 상태가 안정적입니다.'}`;
+        descList.append(li1);
+
+        const li2 = document.createElement('li');
+        li2.textContent = `[권한 검증] 관리자 권한이 아닌 일반 권한(Node.js os, statfsSync)으로 안전하게 읽은 결과입니다.`;
+        descList.append(li2);
+
+        const li3 = document.createElement('li');
+        li3.textContent = `[단위 및 시각] 모든 수치에는 단위(% 및 GB)와 잰 시각이 함께 명시됩니다.`;
+        descList.append(li3);
+
+        const li4 = document.createElement('li');
+        li4.textContent = `[예외 원칙] 권한 제한이나 측정 오류로 읽지 못한 지표는 임의의 정상값으로 위장하지 않고 '확인 불가'와 그 사유를 투명하게 표시합니다.`;
+        descList.append(li4);
+
+        diagContent.append(descList);
+      };
+
+      // 비동기 PC 자원 상태 불러오기 함수
+      const fetchPcStatus = async () => {
+        try {
+          const res = await fetch('/api/pc-status');
+          if (!res.ok) {
+            updateDashboardView(null, `서버 응답 오류 (HTTP ${res.status})`);
+            return;
+          }
+          const json = await res.json();
+          if (json?.ok && json.data) {
+            pcStatusHistory.push(json.data);
+            if (pcStatusHistory.length > 10) pcStatusHistory.shift();
+            updateDashboardView(json.data);
+          } else {
+            updateDashboardView(null, json?.error?.message || '자원 데이터 형식 확인 불가');
+          }
+        } catch (err) {
+          updateDashboardView(null, `네트워크 오류 또는 로컬 서버 미응답: ${err?.message || '확인 불가'}`);
+        }
+      };
+
+      refreshBtn.addEventListener('click', () => {
+        fetchPcStatus();
+      });
+
+      // 기존 측정 이력이 있으면 즉시 렌더링하고, 없으면 초기 1회 로드
+      if (pcStatusHistory.length > 0) {
+        updateDashboardView(pcStatusHistory[pcStatusHistory.length - 1]);
+      } else {
+        fetchPcStatus();
+      }
+
+      // ---------- 기존 기기/세션 알림 및 진단 정보 (원형 보존) ----------
+      const origSection = document.createElement('div');
+      origSection.className = 'student-orig-status';
+      origSection.style.cssText = 'border-top: 1px solid #e2e8f0; padding-top: 16px; margin-top: 16px;';
+
+      const modeText = { demo: '예제 자료', disconnected: '연결 없음', unknown: '확인 불가' };
+      if (Object.hasOwn(modeText, mode)) add(origSection, 'p', modeText[mode]);
+      const retry = '다시 시도는 위쪽 다시 불러오기 버튼을 직접 누르세요.';
+      const showResource = (title, resource, emptyText, showItems) => {
+        const section = document.createElement('section');
+        add(section, 'h3', title);
+        if (resource?.status === 'loading') add(section, 'p', `${title} 불러오는 중`);
+        else if (resource?.status === 'error') {
+          const timeout = /TIMEOUT/i.test(resource.error?.code || '') ? '시간 초과: ' : '';
+          add(section, 'p', `${title} 정보를 불러오지 못했습니다: ${timeout}${resource.error?.message || '확인 불가'}`);
+          add(section, 'p', retry);
+        } else if (resource?.status === 'ok' && Array.isArray(resource.data)) {
+          if (resource.data.length === 0) add(section, 'p', emptyText);
+          else showItems(section, resource.data);
+        } else add(section, 'p', `${title} 확인 불가`);
+        origSection.append(section);
+      };
+      const deviceText = { compliant: '보안 기준 충족', noncompliant: '보안 기준 미충족', unknown: '확인 불가' };
+      const sessionText = { active: '활성', expired: '만료', revoked: '철회됨', unknown: '확인 불가' };
+      showResource('기기', devices, '등록된 기기가 없습니다', (section, items) => {
+        const list = document.createElement('ul');
+        for (const item of items) add(list, 'li', `${item.label} · ${deviceText[item.status] || '확인 불가'}(${item.status})`);
+        section.append(list);
+      });
+      showResource('세션', sessions, '현재 연결이 없습니다', (section, items) => {
+        const list = document.createElement('ul');
+        for (const item of items) add(list, 'li', `${item.id} · ${sessionText[item.status] || '확인 불가'}(${item.status})`);
+        section.append(list);
+      });
+      add(origSection, 'p', '세션 조회는 지금 검증된 연결 한 개를 대상으로 합니다.');
+
+      const alerts = document.createElement('section');
+      add(alerts, 'h3', '알림');
+      if (notifications.length === 0) add(alerts, 'p', '주의할 알림이 없습니다');
+      else {
+        const list = document.createElement('ul');
+        for (const item of notifications) add(list, 'li', `${item.resource} · ${item.code}: ${item.message}`);
+        alerts.append(list);
+      }
+      origSection.append(alerts);
+
+      const help = document.createElement('section');
+      add(help, 'h3', '진단 정보');
+      let copyText = '';
+      if (diagnostics?.status === 'loading') add(help, 'p', '진단 정보 불러오는 중');
+      else if (diagnostics?.status === 'error') {
+        const timeout = /TIMEOUT/i.test(diagnostics.error?.code || '') ? '시간 초과: ' : '';
+        add(help, 'p', `진단 정보를 불러오지 못했습니다: ${timeout}${diagnostics.error?.message || '확인 불가'}`);
+        add(help, 'p', retry);
+      } else if (diagnostics?.status === 'ok' && diagnostics.data) {
+        const data = diagnostics.data;
+        const safe = {
+          requestId: data.requestId,
+          component: data.component,
+          version: data.version,
+          checkedAt: data.checkedAt,
+          engine: { mode: data.engine?.mode, code: data.engine?.code },
+        };
+        const lines = [
+          ['requestId', safe.requestId], ['component', safe.component],
+          ['version', safe.version], ['checkedAt', safe.checkedAt],
+          ['engine.mode', safe.engine.mode], ['engine.code', safe.engine.code],
+        ];
+        for (const [name, value] of lines) add(help, 'p', `${name}: ${value ?? '확인 불가'}`);
+        copyText = lines.map(([name, value]) => `${name}: ${value ?? '확인 불가'}`).join('\n');
+      } else add(help, 'p', '진단 정보 확인 전입니다');
+      add(help, 'p', '도움 요청에 사용할 정보를 확인한 뒤 복사하세요.');
+      const button = add(help, 'button', '도움정보 복사');
+      button.type = 'button';
+      button.disabled = !copyText;
+      const result = add(help, 'p', '');
+      button.addEventListener('click', async () => {
+        if (!copyText) return;
+        try {
+          await navigator.clipboard.writeText(copyText);
+          result.textContent = '도움정보를 클립보드에 복사했습니다.';
+        } catch {
+          result.textContent = '복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하세요.';
+        }
+      });
+      help.append(button);
+      help.append(result);
+      origSection.append(help);
+
+      root.append(origSection);
+      return root;
+    },
     renderVulnerabilities({ status, mode, data, error }) {
       const root = document.createElement('div');
       const add = (parent, tag, value) => {

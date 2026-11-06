@@ -1,5 +1,7 @@
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
+import {statfsSync} from 'node:fs';
+import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -694,6 +696,123 @@ export function createOnServer(serverOptions={}) {
         const info=(mappedAi??defaultAi).connectionInfo();
         send(200,{ok:true,data:{requestId,component:'on-client',version:'0.1.0',engine:{mode,code:mode==='disconnected'?'ENGINE_NOT_CONNECTED':mode==='demo'?'DEMO_ONLY':'ADAPTER_CONFIGURED'},
           ai:{configured:info?.configured===true,authorized:false,authorizationRequired:true},checkedAt:clock().toISOString(),workbenchRequiredAtRuntime:false}});return;
+      }
+      if(req.method==='GET'&&url.pathname==='/api/pc-status'){
+        const checkedAt = clock().toISOString();
+        if(mode==='demo'){
+          send(200,{ok:true,data:{
+            mode:'demo',
+            label:'설명용 예시',
+            checkedAt,
+            cpu:{status:'ok',percent:24.5,cores:8,unit:'%',measuredAt:checkedAt},
+            memory:{status:'ok',usedPercent:58.2,usedGb:9.3,totalGb:16.0,freeGb:6.7,unit:'GB',measuredAt:checkedAt},
+            disk:{status:'ok',freePercent:42.1,freeGb:215.4,totalGb:512.0,usedGb:296.6,unit:'GB',path:'C:\\',measuredAt:checkedAt},
+            diagnosis:{status:'normal',summary:'설명용 예시 데이터입니다. CPU와 메모리 사용량이 정상 범위에 있습니다.'}
+          }});return;
+        }
+
+        // 일반 사용자 권한으로만 읽는 실제 자원 측정
+        let memData;
+        try {
+          const totalBytes = os.totalmem();
+          const freeBytes = os.freemem();
+          const usedBytes = totalBytes - freeBytes;
+          const usedPercent = totalBytes > 0 ? Number(((usedBytes / totalBytes) * 100).toFixed(1)) : 0;
+          memData = {
+            status: 'ok',
+            usedPercent,
+            usedGb: Number((usedBytes / (1024 ** 3)).toFixed(2)),
+            totalGb: Number((totalBytes / (1024 ** 3)).toFixed(2)),
+            freeGb: Number((freeBytes / (1024 ** 3)).toFixed(2)),
+            unit: 'GB',
+            measuredAt: checkedAt
+          };
+        } catch(err) {
+          memData = { status: 'unavailable', reason: err?.message || '메모리 정보를 읽을 수 없습니다.', measuredAt: checkedAt };
+        }
+
+        let diskData;
+        try {
+          const cwdRoot = resolve(process.cwd()).slice(0, 3) || 'C:\\';
+          const stat = statfsSync(cwdRoot);
+          const bsize = Number(stat.bsize || stat.frsize || 4096);
+          const totalBytes = Number(stat.blocks) * bsize;
+          const freeBytes = Number(stat.bavail) * bsize;
+          const usedBytes = totalBytes - freeBytes;
+          const freePercent = totalBytes > 0 ? Number(((freeBytes / totalBytes) * 100).toFixed(1)) : 0;
+          diskData = {
+            status: 'ok',
+            freePercent,
+            freeGb: Number((freeBytes / (1024 ** 3)).toFixed(2)),
+            totalGb: Number((totalBytes / (1024 ** 3)).toFixed(2)),
+            usedGb: Number((usedBytes / (1024 ** 3)).toFixed(2)),
+            unit: 'GB',
+            path: cwdRoot,
+            measuredAt: checkedAt
+          };
+        } catch(err) {
+          diskData = { status: 'unavailable', reason: err?.message || '디스크 남은 공간 확인 불가(권한 제한 또는 경로 오류)', measuredAt: checkedAt };
+        }
+
+        let cpuData;
+        try {
+          const cpus = os.cpus();
+          if (Array.isArray(cpus) && cpus.length > 0) {
+            let idle1 = 0, total1 = 0;
+            for (const c of cpus) {
+              idle1 += c.times.idle;
+              total1 += c.times.user + c.times.nice + c.times.sys + c.times.irq + c.times.idle;
+            }
+            await new Promise(r => setTimeout(r, 80));
+            const cpus2 = os.cpus();
+            let idle2 = 0, total2 = 0;
+            for (const c of cpus2) {
+              idle2 += c.times.idle;
+              total2 += c.times.user + c.times.nice + c.times.sys + c.times.irq + c.times.idle;
+            }
+            const deltaTotal = total2 - total1;
+            const deltaIdle = idle2 - idle1;
+            const percent = deltaTotal > 0 ? Number((Math.max(0, Math.min(100, ((deltaTotal - deltaIdle) / deltaTotal) * 100))).toFixed(1)) : 0;
+            cpuData = {
+              status: 'ok',
+              percent,
+              cores: cpus.length,
+              model: cpus[0]?.model || '확인 불가',
+              unit: '%',
+              measuredAt: checkedAt
+            };
+          } else {
+            cpuData = { status: 'unavailable', reason: 'CPU 정보 목록을 조회할 수 없습니다.', measuredAt: checkedAt };
+          }
+        } catch(err) {
+          cpuData = { status: 'unavailable', reason: err?.message || 'CPU 사용률 측정 시간 초과 또는 권한 제한', measuredAt: checkedAt };
+        }
+
+        let diagStatus = 'normal';
+        let diagSummary = '모든 시스템 자원이 안정적인 정상 운영 범위 내에 있습니다.';
+        if (memData.status === 'ok' && memData.usedPercent > 90) {
+          diagStatus = 'warning';
+          diagSummary = `메모리 사용률이 ${memData.usedPercent}%로 매우 높습니다. 메모리 부족에 주의하세요.`;
+        } else if (diskData.status === 'ok' && diskData.freePercent < 10) {
+          diagStatus = 'warning';
+          diagSummary = `디스크 여유 공간이 ${diskData.freePercent}%(${diskData.freeGb} GB)로 부족합니다. 임시 파일 정리가 필요합니다.`;
+        } else if (cpuData.status === 'ok' && cpuData.percent > 85) {
+          diagStatus = 'warning';
+          diagSummary = `CPU 부하율이 ${cpuData.percent}%로 높습니다. 에이전트 작업 지연이 발생할 수 있습니다.`;
+        } else if (memData.status !== 'ok' || diskData.status !== 'ok' || cpuData.status !== 'ok') {
+          diagStatus = 'partial';
+          diagSummary = '일부 지표를 일반 권한으로 읽지 못해 확인 불가 상태입니다. 아래 사유를 확인하세요.';
+        }
+
+        send(200,{ok:true,data:{
+          mode:'actual',
+          label:'실제 조회',
+          checkedAt,
+          cpu:cpuData,
+          memory:memData,
+          disk:diskData,
+          diagnosis:{status:diagStatus,summary:diagSummary}
+        }});return;
       }
       if(req.method==='GET'&&url.pathname==='/api/vulnerabilities'){
         const data=await bounded(signal=>scanner.scan({signal}));send(200,{ok:true,data});
