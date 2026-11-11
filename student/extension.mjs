@@ -211,63 +211,120 @@ export function createStudentView({ api, onChange } = {}) {
         return element;
       };
 
-      // 1. 관제 대시보드형 상단: 내 PC 상태 카드 네 개
+      // ---------- 학생 추가 관제 대시보드 (핵심 기능 3가지 우선 배치) ----------
       const dashboardSection = document.createElement('section');
       dashboardSection.className = 'pc-status-dashboard';
-      dashboardSection.style.cssText = 'border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #f8fafc;';
+      dashboardSection.setAttribute('aria-label', '내 PC 관제 대시보드');
+      dashboardSection.style.cssText = 'border: 2px solid #94a3b8; border-radius: 8px; padding: 18px; margin-bottom: 22px; background: #f8fafc; font-family: inherit;';
 
+      // 상단 헤더: 제목 및 ‘다시 조회’ 버튼 (키보드 접근성 강화)
       const dashHeader = document.createElement('div');
-      dashHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;';
-      add(dashHeader, 'h3', '내 PC 자원 상태 관제 대시보드 (일반 권한)', '');
-      const refreshBtn = add(dashHeader, 'button', 'PC 자원 측정 갱신', 'btn');
+      dashHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;';
+      
+      const titleWrapper = document.createElement('div');
+      const headerTitle = add(titleWrapper, 'h3', '내 PC 관제 대시보드 (핵심 기능 3선)', '');
+      headerTitle.style.cssText = 'margin: 0 0 4px 0; font-size: 18px; color: #0f172a;';
+      const headerSubtitle = add(titleWrapper, 'p', '일반 권한 측정 자원 상태 · 시각별 추이 비교 · 진단 및 다음 할 일 안내', '');
+      headerSubtitle.style.cssText = 'margin: 0; font-size: 12px; color: #475569;';
+      dashHeader.append(titleWrapper);
+
+      const buttonWrapper = document.createElement('div');
+      buttonWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+      
+      const refreshBtn = document.createElement('button');
       refreshBtn.type = 'button';
-      refreshBtn.style.cssText = 'padding: 4px 10px; font-size: 13px; cursor: pointer;';
+      refreshBtn.textContent = '다시 조회';
+      refreshBtn.setAttribute('aria-label', '내 PC 자원 상태 다시 조회');
+      refreshBtn.tabIndex = 0;
+      refreshBtn.style.cssText = 'padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; background: #0284c7; color: #ffffff; border: 1px solid #0369a1; border-radius: 6px; outline: none; transition: background 0.15s;';
+      refreshBtn.addEventListener('focus', () => { refreshBtn.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)'; });
+      refreshBtn.addEventListener('blur', () => { refreshBtn.style.boxShadow = 'none'; });
+      buttonWrapper.append(refreshBtn);
+      dashHeader.append(buttonWrapper);
+
       dashboardSection.append(dashHeader);
 
+      // 대기 표시 (로딩 인디케이터)
+      const loadingBanner = document.createElement('div');
+      loadingBanner.setAttribute('role', 'status');
+      loadingBanner.setAttribute('aria-live', 'polite');
+      loadingBanner.style.cssText = 'display: none; padding: 10px 14px; margin-bottom: 14px; background: #e0f2fe; border: 1px solid #7dd3fc; border-radius: 6px; color: #0369a1; font-size: 13px; font-weight: 500;';
+      loadingBanner.textContent = '⏳ PC 자원 상태를 다시 조회하고 있습니다. 잠시만 기다려 주세요...';
+      dashboardSection.append(loadingBanner);
+
+      // [핵심 기능 1] 상단: 상태 카드 네 개
+      const feature1Heading = add(dashboardSection, 'h4', '1. 내 PC 자원 상태 카드 (실시간 관제)', '');
+      feature1Heading.style.cssText = 'font-size: 14px; color: #334155; margin: 0 0 10px 0; font-weight: 600;';
+      
       const cardsContainer = document.createElement('div');
       cardsContainer.className = 'pc-cards-grid';
-      cardsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px;';
+      cardsContainer.setAttribute('role', 'region');
+      cardsContainer.setAttribute('aria-label', 'PC 자원 상태 카드 4개');
+      cardsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 18px;';
       dashboardSection.append(cardsContainer);
 
-      // 2. 관제 대시보드 하단: 추이 비교와 진단 기록
+      // 하단 2분할 그리드: [핵심 기능 2] 추이 비교 & [핵심 기능 3] 진단 및 다음 할 일
       const lowerSection = document.createElement('div');
       lowerSection.className = 'pc-dashboard-lower';
       lowerSection.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;';
       dashboardSection.append(lowerSection);
 
+      // [핵심 기능 2] 자원 사용 추이 비교 패널
       const trendPanel = document.createElement('div');
       trendPanel.className = 'pc-trend-panel';
-      trendPanel.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;';
-      add(trendPanel, 'h4', '자원 사용 추이 비교 (시각별 측정 이력)', '');
+      trendPanel.setAttribute('role', 'region');
+      trendPanel.setAttribute('aria-label', '자원 사용 추이 비교');
+      trendPanel.tabIndex = 0;
+      trendPanel.style.cssText = 'background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 14px; outline: none;';
+      trendPanel.addEventListener('focus', () => { trendPanel.style.borderColor = '#0284c7'; });
+      trendPanel.addEventListener('blur', () => { trendPanel.style.borderColor = '#cbd5e1'; });
+      
+      const trendHeading = add(trendPanel, 'h4', '2. 자원 사용 추이 비교 (시각별 측정 이력)', '');
+      trendHeading.style.cssText = 'font-size: 14px; color: #1e293b; margin: 0 0 8px 0; font-weight: 600;';
+      
       const trendContent = document.createElement('div');
       trendPanel.append(trendContent);
       lowerSection.append(trendPanel);
 
+      // [핵심 기능 3] 시스템 상태 진단 및 다음에 할 일 패널
       const diagPanel = document.createElement('div');
       diagPanel.className = 'pc-diag-panel';
-      diagPanel.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;';
-      add(diagPanel, 'h4', '시스템 상태 진단 설명 및 확인 순서', '');
+      diagPanel.setAttribute('role', 'region');
+      diagPanel.setAttribute('aria-label', '시스템 상태 진단 및 대처 안내');
+      diagPanel.tabIndex = 0;
+      diagPanel.style.cssText = 'background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 14px; outline: none;';
+      diagPanel.addEventListener('focus', () => { diagPanel.style.borderColor = '#0284c7'; });
+      diagPanel.addEventListener('blur', () => { diagPanel.style.borderColor = '#cbd5e1'; });
+      
+      const diagHeading = add(diagPanel, 'h4', '3. 시스템 상태 진단 및 다음 할 일', '');
+      diagHeading.style.cssText = 'font-size: 14px; color: #1e293b; margin: 0 0 8px 0; font-weight: 600;';
+      
       const diagContent = document.createElement('div');
       diagPanel.append(diagContent);
       lowerSection.append(diagPanel);
 
       root.append(dashboardSection);
 
-      // 카드 생성 헬퍼
+      // 카드 생성 헬퍼 (키보드 Tab 탐색 및 명확한 시각적 구별)
       const createStatusCard = (title, valueText, subText, measuredAt, badgeText, badgeType) => {
         const card = document.createElement('article');
-        card.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between;';
-        
+        card.tabIndex = 0;
+        card.setAttribute('role', 'region');
+        card.setAttribute('aria-label', `${title}: ${valueText}`);
+        card.style.cssText = 'background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; outline: none; transition: border-color 0.15s;';
+        card.addEventListener('focus', () => { card.style.borderColor = '#0284c7'; card.style.boxShadow = '0 0 0 2px rgba(2, 132, 199, 0.2)'; });
+        card.addEventListener('blur', () => { card.style.borderColor = '#cbd5e1'; card.style.boxShadow = 'none'; });
+
         const topRow = document.createElement('div');
-        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;';
+        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 4px;';
         add(topRow, 'strong', title, '');
         
         const badge = add(topRow, 'span', badgeText, 'data-source-badge');
         badge.style.cssText = badgeType === 'actual'
-          ? 'background: #dcfce7; color: #166534; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px;'
+          ? 'background: #dcfce7; color: #166534; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; white-space: nowrap;'
           : (badgeType === 'demo'
-            ? 'background: #fef3c7; color: #92400e; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px;'
-            : 'background: #fee2e2; color: #991b1b; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px;');
+            ? 'background: #fef3c7; color: #92400e; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; white-space: nowrap;'
+            : 'background: #fee2e2; color: #991b1b; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; white-space: nowrap;');
         
         card.append(topRow);
         
@@ -276,26 +333,49 @@ export function createStudentView({ api, onChange } = {}) {
         
         if (subText) {
           const sub = add(card, 'div', subText, '');
-          sub.style.cssText = 'font-size: 12px; color: #64748b; margin-bottom: 6px;';
+          sub.style.cssText = 'font-size: 12px; color: #64748b; margin-bottom: 6px; line-height: 1.4;';
         }
         
         const timeVal = add(card, 'div', `잰 시각: ${measuredAt || '확인 불가'}`, '');
-        timeVal.style.cssText = 'font-size: 11px; color: #94a3b8; border-top: 1px dashed #f1f5f9; padding-top: 4px;';
+        timeVal.style.cssText = 'font-size: 11px; color: #94a3b8; border-top: 1px dashed #e2e8f0; padding-top: 5px;';
         
         return card;
       };
 
-      // 렌더링 갱신 함수
+      // 렌더링 갱신 함수 (실패 시 예시 값 위장 방지 및 다음 할 일 안내)
       const updateDashboardView = (data, errorMsg) => {
         cardsContainer.replaceChildren();
         trendContent.replaceChildren();
         diagContent.replaceChildren();
 
+        // [조회 실패 대응] 예시 값을 보여주지 않고 실패한 항목과 다음에 할 일을 명시
         if (errorMsg || !data) {
-          const errCard = createStatusCard('내 PC 상태', '확인 불가', errorMsg || '서버 응답 확인 불가', '-', '확인 불가', 'unavailable');
-          cardsContainer.append(errCard);
-          add(diagContent, 'p', `조회 실패 사유: ${errorMsg || '서버 연결 실패'}`, '');
-          add(diagContent, 'p', '관리자 권한 없이 일반 권한으로 조회를 시도했으나 결과를 받아오지 못했습니다.', '');
+          for (const itemTitle of ['CPU 사용률', '메모리 사용량', '디스크 남은 공간', '자원 건전도']) {
+            cardsContainer.append(createStatusCard(itemTitle, '확인 불가', '조회 실패 상태', '-', '확인 불가', 'unavailable'));
+          }
+
+          add(trendContent, 'p', 'PC 자원 조회가 실패하여 추이를 표시할 수 없습니다.', '');
+
+          // 실패 항목 안내
+          const failBox = document.createElement('div');
+          failBox.style.cssText = 'background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; margin-bottom: 12px;';
+          const failTitle = add(failBox, 'strong', '❌ 실패한 항목', '');
+          failTitle.style.cssText = 'color: #991b1b; display: block; margin-bottom: 4px; font-size: 13px;';
+          add(failBox, 'p', `사유: ${errorMsg || '로컬 서버 응답 확인 불가'}`, '');
+          diagContent.append(failBox);
+
+          // 다음에 할 일 안내
+          const actionBox = document.createElement('div');
+          actionBox.style.cssText = 'background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 12px;';
+          const actionTitle = add(actionBox, 'strong', '📋 다음에 할 일 (행동 가이드)', '');
+          actionTitle.style.cssText = 'color: #166534; display: block; margin-bottom: 6px; font-size: 13px;';
+          const actionList = document.createElement('ol');
+          actionList.style.cssText = 'margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.6; color: #166534;';
+          add(actionList, 'li', '앱 폴더(on-client)에서 서버가 포트 5190으로 실행 중인지 확인하세요.');
+          add(actionList, 'li', '관리자 권한을 억지로 승인하려 하지 마시고 일반 사용자 권한을 유지하세요.');
+          add(actionList, 'li', '네트워크 연결이 복구되면 상단의 [다시 조회] 버튼을 눌러 다시 시도하세요.');
+          actionBox.append(actionList);
+          diagContent.append(actionBox);
           return;
         }
 
@@ -309,7 +389,7 @@ export function createStudentView({ api, onChange } = {}) {
           cardsContainer.append(createStatusCard(
             'CPU 사용률',
             `${data.cpu.percent} ${data.cpu.unit}`,
-            `코어 수: ${data.cpu.cores}코어 (${data.cpu.model ? data.cpu.model.slice(0, 25) : '확인 불가'})`,
+            `코어 수: ${data.cpu.cores}코어 (${data.cpu.model ? data.cpu.model.slice(0, 22) : '확인 불가'})`,
             new Date(data.cpu.measuredAt || data.checkedAt).toLocaleTimeString(),
             badgeLabel,
             badgeType
@@ -318,7 +398,7 @@ export function createStudentView({ api, onChange } = {}) {
           cardsContainer.append(createStatusCard(
             'CPU 사용률',
             '확인 불가',
-            `이유: ${data.cpu?.reason || '측정 시간 초과 또는 권한 제한'}`,
+            `실패 사유: ${data.cpu?.reason || '측정 시간 초과 또는 권한 제한'}`,
             data.cpu?.measuredAt ? new Date(data.cpu.measuredAt).toLocaleTimeString() : '-',
             '확인 불가',
             'unavailable'
@@ -339,7 +419,7 @@ export function createStudentView({ api, onChange } = {}) {
           cardsContainer.append(createStatusCard(
             '메모리 사용량',
             '확인 불가',
-            `이유: ${data.memory?.reason || '메모리 읽기 실패'}`,
+            `실패 사유: ${data.memory?.reason || '메모리 읽기 실패'}`,
             data.memory?.measuredAt ? new Date(data.memory.measuredAt).toLocaleTimeString() : '-',
             '확인 불가',
             'unavailable'
@@ -360,14 +440,14 @@ export function createStudentView({ api, onChange } = {}) {
           cardsContainer.append(createStatusCard(
             '디스크 남은 공간',
             '확인 불가',
-            `이유: ${data.disk?.reason || '디스크 권한 제한 또는 경로 오류'}`,
+            `실패 사유: ${data.disk?.reason || '디스크 권한 제한 또는 경로 오류'}`,
             data.disk?.measuredAt ? new Date(data.disk.measuredAt).toLocaleTimeString() : '-',
             '확인 불가',
             'unavailable'
           ));
         }
 
-        // 4. 건전도 / 설명 카드
+        // 4. 자원 건전도 카드
         const diagStateLabel = data.diagnosis?.status === 'normal' ? '정상 (안정)' : (data.diagnosis?.status === 'warning' ? '주의 필요' : '부분 확인');
         cardsContainer.append(createStatusCard(
           '자원 건전도',
@@ -378,15 +458,15 @@ export function createStudentView({ api, onChange } = {}) {
           badgeType
         ));
 
-        // 하단 추이 비교 패널 내용 구성
+        // [핵심 기능 2 렌더링] 추이 비교 내용
         if (pcStatusHistory.length <= 1) {
-          add(trendContent, 'p', '측정 이력이 1건입니다. [PC 자원 측정 갱신]을 누르면 이전 측정값과 추이를 비교합니다.', '');
+          add(trendContent, 'p', '현재 측정 이력이 1건입니다. 상단의 [다시 조회] 버튼을 누르면 이전 측정값과 실시간 증감률을 비교합니다.', '');
         } else {
           const current = pcStatusHistory[pcStatusHistory.length - 1];
           const previous = pcStatusHistory[pcStatusHistory.length - 2];
           
           const trendSummary = document.createElement('div');
-          trendSummary.style.cssText = 'padding: 8px; background: #f1f5f9; border-radius: 4px; margin-bottom: 10px; font-size: 13px;';
+          trendSummary.style.cssText = 'padding: 8px 12px; background: #f1f5f9; border-radius: 4px; margin-bottom: 10px; font-size: 13px; font-weight: 500;';
           
           const cpuDiff = (current.cpu?.percent !== undefined && previous.cpu?.percent !== undefined)
             ? (current.cpu.percent - previous.cpu.percent).toFixed(1) : null;
@@ -404,9 +484,15 @@ export function createStudentView({ api, onChange } = {}) {
           trendContent.append(trendSummary);
         }
 
-        // 시각별 이력 테이블
+        // 시각별 이력 테이블 (키보드 Tab 탐색 지원)
         const table = document.createElement('table');
-        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px;';
+        table.tabIndex = 0;
+        table.setAttribute('role', 'table');
+        table.setAttribute('aria-label', '최근 시각별 자원 측정 이력');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; outline: none;';
+        table.addEventListener('focus', () => { table.style.outline = '1px solid #0284c7'; });
+        table.addEventListener('blur', () => { table.style.outline = 'none'; });
+
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
         headerRow.style.cssText = 'background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;';
@@ -445,16 +531,16 @@ export function createStudentView({ api, onChange } = {}) {
         table.append(tbody);
         trendContent.append(table);
 
-        // 하단 진단 설명 내용 구성
+        // [핵심 기능 3 렌더링] 상태 진단 설명 및 행동 가이드
         const descList = document.createElement('ul');
-        descList.style.cssText = 'margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: #334155;';
+        descList.style.cssText = 'margin: 0 0 12px 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: #334155;';
         
         const li1 = document.createElement('li');
         li1.textContent = `[진단 요약] ${data.diagnosis?.summary || '자원 상태가 안정적입니다.'}`;
         descList.append(li1);
 
         const li2 = document.createElement('li');
-        li2.textContent = `[권한 검증] 관리자 권한이 아닌 일반 권한(Node.js os, statfsSync)으로 안전하게 읽은 결과입니다.`;
+        li2.textContent = `[권한 원칙] 관리자 권한을 쓰지 않고 일반 사용자 권한으로 안전하게 읽은 결과입니다.`;
         descList.append(li2);
 
         const li3 = document.createElement('li');
@@ -462,14 +548,30 @@ export function createStudentView({ api, onChange } = {}) {
         descList.append(li3);
 
         const li4 = document.createElement('li');
-        li4.textContent = `[예외 원칙] 권한 제한이나 측정 오류로 읽지 못한 지표는 임의의 정상값으로 위장하지 않고 '확인 불가'와 그 사유를 투명하게 표시합니다.`;
+        li4.textContent = `[예외 원칙] 권한 제한이나 측정 오류 항목은 예시로 위장하지 않고 '확인 불가'와 그 사유를 투명하게 표시합니다.`;
         descList.append(li4);
 
         diagContent.append(descList);
+
+        // 다음에 할 일 가이드
+        const guideBox = document.createElement('div');
+        guideBox.style.cssText = 'background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; font-size: 12px; color: #475569;';
+        add(guideBox, 'strong', '💡 일상 점검 순서 안내', '');
+        const guideList = document.createElement('ol');
+        guideList.style.cssText = 'margin: 4px 0 0 0; padding-left: 18px; line-height: 1.5;';
+        add(guideList, 'li', '상단 4개 카드의 [실제 조회] 배지와 잰 시각을 확인합니다.');
+        add(guideList, 'li', '메모리나 디스크에 [주의 필요] 경고가 뜨면 불필요한 프로그램을 정리합니다.');
+        add(guideList, 'li', '자원 변화가 필요할 때 [다시 조회] 버튼(키보드 Tab + Enter)을 누릅니다.');
+        guideBox.append(guideList);
+        diagContent.append(guideBox);
       };
 
-      // 비동기 PC 자원 상태 불러오기 함수
+      // 비동기 PC 자원 상태 불러오기 함수 (대기 표시 제어)
       const fetchPcStatus = async () => {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '조회 중...';
+        loadingBanner.style.display = 'block';
+
         try {
           const res = await fetch('/api/pc-status');
           if (!res.ok) {
@@ -486,11 +588,20 @@ export function createStudentView({ api, onChange } = {}) {
           }
         } catch (err) {
           updateDashboardView(null, `네트워크 오류 또는 로컬 서버 미응답: ${err?.message || '확인 불가'}`);
+        } finally {
+          loadingBanner.style.display = 'none';
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '다시 조회';
         }
       };
 
-      refreshBtn.addEventListener('click', () => {
-        fetchPcStatus();
+      // 마우스 클릭 및 키보드 Enter/Space 지원
+      refreshBtn.addEventListener('click', () => { fetchPcStatus(); });
+      refreshBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          fetchPcStatus();
+        }
       });
 
       // 기존 측정 이력이 있으면 즉시 렌더링하고, 없으면 초기 1회 로드
@@ -575,6 +686,7 @@ export function createStudentView({ api, onChange } = {}) {
       const button = add(help, 'button', '도움정보 복사');
       button.type = 'button';
       button.disabled = !copyText;
+      button.tabIndex = 0;
       const result = add(help, 'p', '');
       button.addEventListener('click', async () => {
         if (!copyText) return;
@@ -582,7 +694,7 @@ export function createStudentView({ api, onChange } = {}) {
           await navigator.clipboard.writeText(copyText);
           result.textContent = '도움정보를 클립보드에 복사했습니다.';
         } catch {
-          result.textContent = '복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하세요.';
+          result.textContent = '클립보드에 복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하세요.';
         }
       });
       help.append(button);

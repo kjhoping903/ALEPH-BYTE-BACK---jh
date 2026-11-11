@@ -1,0 +1,28 @@
+{
+  "appName": "방어회방어전",
+  "layout": "control-dashboard",
+  "theme": "navy-slate",
+  "features": [
+    {
+      "id": "pc-resource-cards",
+      "name": "내 PC 자원 상태 관제 카드",
+      "description": "CPU 사용률, 메모리 사용량, 디스크 남은 공간, 자원 건전도를 맨 위 4개 카드로 실시간 관제"
+    },
+    {
+      "id": "resource-trend-comparison",
+      "name": "자원 사용 추이 비교",
+      "description": "시각별 측정 이력 누적 테이블 및 이전 측정 대비 증감률(±%) 비교"
+    },
+    {
+      "id": "system-diagnosis-guidance",
+      "name": "시스템 상태 진단 및 대처 안내",
+      "description": "안정도 진단 설명과 조회 실패 시 실패 항목 및 다음에 할 일 행동 가이드 제공"
+    }
+  ],
+  "accessibility": {
+    "keyboardOnlySupported": true,
+    "interactiveElements": ["button", "table", "article"],
+    "loadingIndicator": "aria-busy with polite live region"
+  }
+}
+
